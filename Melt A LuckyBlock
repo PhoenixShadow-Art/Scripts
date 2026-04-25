@@ -1,0 +1,239 @@
+--// Load Fluent UI
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+--// Remote
+local Event = game:GetService("ReplicatedStorage").Framework.Remotes.Event
+
+--// Window
+local Window = Fluent:CreateWindow({
+    Title = "Melt a Lucky Block",
+    SubTitle = "by GrimSyndicate",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(500, 375),
+    Theme = "Dark"
+})
+
+--// Tabs
+local Tabs = {
+    Auto = Window:AddTab({ Title = "Auto", Icon = "" }),
+    Credit = Window:AddTab({ Title = "Credit", Icon = "" })
+}
+
+--// CREDIT TAB
+Tabs.Credit:AddParagraph({
+    Title = "Creators",
+    Content = "Marcus Vale\nDamien Crowe "
+})
+
+Tabs.Credit:AddParagraph({
+    Title = "Description",
+    Content = "Melt a Lucky Block Hub using Fluent UI. Made for automation & farming."
+})
+
+--// SECTION
+local AutoFarm = Tabs.Auto:AddSection("Auto Farm")
+
+--// STATES
+local Toggles = {}
+
+--------------------------------------------------
+-- 1. AUTO COLLECT CASH
+--------------------------------------------------
+Toggles.AutoCash = Tabs.Auto:AddToggle("AutoCash", {
+    Title = "Auto Collect Cash",
+    Description = "Loops 1-20",
+    Default = false
+})
+
+Toggles.AutoCash:OnChanged(function(v)
+    _G.AutoCash = v
+    while _G.AutoCash do
+        for i = 1, 20 do
+            Event:FireServer("ClaimSlotMoney", tostring(i))
+        end
+        task.wait(0.1)
+    end
+end)
+
+--------------------------------------------------
+-- 2. AUTO UPGRADE BRAINROT
+--------------------------------------------------
+Toggles.Brainrot = Tabs.Auto:AddToggle("Brainrot", {
+    Title = "Auto Upgrade Brainrot",
+    Default = false
+})
+
+Toggles.Brainrot:OnChanged(function(v)
+    _G.Brainrot = v
+    while _G.Brainrot do
+        for i = 1, 20 do
+            Event:FireServer("UpgradeSlotBrainrot", tostring(i))
+        end
+        task.wait(0.1)
+    end
+end)
+
+--------------------------------------------------
+-- 3. AUTO BUY FLAMETHROWERS
+--------------------------------------------------
+local Flames = {
+    "Iron","Steel","Emerald","Diamond","Golden","Obsidian",
+    "Glacier","Lava","Storm","Shadow","Toxic","Plasma",
+    "CryStal","Void","Celestial","Toy"
+}
+
+Toggles.Flamethrower = Tabs.Auto:AddToggle("Flame", {
+    Title = "Auto Buy All Flamethrowers",
+    Default = false
+})
+
+Toggles.Flamethrower:OnChanged(function(v)
+    _G.Flame = v
+    while _G.Flame do
+        for _,name in pairs(Flames) do
+            Event:FireServer("FlamethrowerAction", name)
+        end
+        task.wait(0.2)
+    end
+end)
+
+--------------------------------------------------
+-- 4. AUTO CLAIM PLAYTIME
+--------------------------------------------------
+Toggles.Playtime = Tabs.Auto:AddToggle("Playtime", {
+    Title = "Auto Claim Playtime Rewards",
+    Default = false
+})
+
+Toggles.Playtime:OnChanged(function(v)
+    _G.Playtime = v
+    while _G.Playtime do
+        for i = 1, 6 do
+            Event:FireServer("ClaimPlaytimeReward", i)
+        end
+        task.wait(1)
+    end
+end)
+
+--------------------------------------------------
+-- 5. AUTO UPGRADE CARRY
+--------------------------------------------------
+Tabs.Auto:AddToggle("Carry", {
+    Title = "Auto Upgrade Carry"
+}):OnChanged(function(v)
+    _G.Carry = v
+    while _G.Carry do
+        Event:FireServer("BuyCarryUpgrade")
+        task.wait(0.5)
+    end
+end)
+
+--------------------------------------------------
+-- 6. LUCKY BLOCK FARM
+--------------------------------------------------
+local SelectedRarity = "Common"
+
+Tabs.Auto:AddDropdown("Rarity", {
+    Title = "Rarity",
+    Values = {"Common","Uncommon","Rare","Epic","Legendary","Celestial"},
+    Default = 1,
+    Multi = false
+}):OnChanged(function(v)
+    SelectedRarity = v
+end)
+
+Tabs.Auto:AddToggle("LuckyFarm", {
+    Title = "Auto Farm Lucky Block"
+}):OnChanged(function(v)
+    _G.LuckyFarm = v
+
+    while _G.LuckyFarm do
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local oldPos = root and root.CFrame
+
+        for _,block in pairs(workspace.LuckyBlocks:GetChildren()) do
+            if block:IsA("MeshPart") then
+                local gui = block:FindFirstChild("LuckyBlockGUI")
+                local prompt = block:FindFirstChildOfClass("ProximityPrompt")
+
+                if gui and prompt then
+                    local rarity = gui:FindFirstChild("Rarity")
+                    if rarity and rarity.Text == SelectedRarity then
+                        root.CFrame = block.CFrame
+                        task.wait(0.2)
+                        fireproximityprompt(prompt)
+                        task.wait(0.2)
+                        root.CFrame = oldPos
+                    end
+                end
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+--------------------------------------------------
+-- 7. REMOVE NPC
+--------------------------------------------------
+Tabs.Auto:AddButton({
+    Title = "Remove NPC",
+    Callback = function()
+        while true do
+            for _,v in pairs(workspace:GetChildren()) do
+                if v.Name == "NPC" and v:IsA("Model") then
+                    if v:FindFirstChild("Humanoid") or v:FindFirstChild("HumanoidRootPart") then
+                        v:Destroy()
+                    end
+                end
+            end
+            task.wait(1)
+        end
+    end
+})
+
+--------------------------------------------------
+-- 8. AUTO REBIRTH
+--------------------------------------------------
+Tabs.Auto:AddToggle("Rebirth", {
+    Title = "Auto Rebirth"
+}):OnChanged(function(v)
+    _G.Rebirth = v
+    while _G.Rebirth do
+        Event:FireServer("Rebirth")
+        task.wait(1)
+    end
+end)
+
+--------------------------------------------------
+-- 9. REMOVE NOTIFICATIONS
+--------------------------------------------------
+Tabs.Auto:AddButton({
+    Title = "Remove Notifications",
+    Callback = function()
+        local path = LocalPlayer.PlayerGui.MainGui.Buttons
+        while true do
+            for _,v in pairs(path:GetChildren()) do
+                if v.Name == "NotificationTemplate" then
+                    v:Destroy()
+                end
+            end
+            task.wait(1)
+        end
+    end
+})
+
+--------------------------------------------------
+-- 10. AUTO BUY SPEED
+--------------------------------------------------
+Tabs.Auto:AddToggle("Speed", {
+    Title = "Auto Buy Speed Upgrade"
+}):OnChanged(function(v)
+    _G.Speed = v
+    while _G.Speed do
+        Event:FireServer("BuySpeedUpgrade")
+        task.wait(0.5)
+    end
+end)
