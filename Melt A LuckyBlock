@@ -1,290 +1,701 @@
---// Fluent UI
+--[[
+    Melt a Lucky Block
+    by GrimSyndicate
+    
+    Creators:
+    - Marcus Vale
+    - Damien Crowe
+]]
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+
+-- Player
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+-- Remote Event
+local Event = ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Remotes"):WaitForChild("Event")
+
+-- Load Fluent UI Library
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
---// Services
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local Event = game:GetService("ReplicatedStorage").Framework.Remotes.Event
-local UIS = game:GetService("UserInputService")
-
---// Window
+-- Create Window
 local Window = Fluent:CreateWindow({
     Title = "Melt a Lucky Block",
     SubTitle = "by GrimSyndicate",
     TabWidth = 160,
-    Size = UDim2.fromOffset(500, 376),
-    Theme = "Dark"
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
 })
 
---// Tabs
+-- Create Tabs
 local Tabs = {
-    Auto = Window:AddTab({ Title = "Auto" }),
-    Credit = Window:AddTab({ Title = "Credit" })
+    Auto = Window:AddTab({ Title = "Auto", Icon = "activity" }),
+    Webhook = Window:AddTab({ Title = "Webhook", Icon = "send" }),
+    Credits = Window:AddTab({ Title = "Credits", Icon = "users" })
 }
 
---------------------------------------------------
--- CREDIT TAB
---------------------------------------------------
-Tabs.Credit:AddParagraph({
-    Title = "Creators",
-    Content = "Marcus Vale\Damien Crowe"
-})
-
-Tabs.Credit:AddParagraph({
-    Title = "Description",
-    Content = "Automation hub for Melt a Lucky Block.\Optimized + Mobile Support."
-})
-
---------------------------------------------------
--- SECTION
---------------------------------------------------
-Tabs.Auto:AddSection("Auto Farm")
-
---------------------------------------------------
--- GLOBAL STATES
---------------------------------------------------
-local State = {
-    AutoCash = false,
-    Brainrot = false,
-    Flame = false,
-    Playtime = false,
-    Carry = false,
-    LuckyFarm = false,
-    Rebirth = false,
-    Speed = false,
-    AutoNotif = false
+-- Toggle States
+local Toggles = {
+    AutoCollectCash = false,
+    AutoUpgradeBrainrot = false,
+    AutoBuyFlamethrowers = false,
+    AutoClaimPlaytime = false,
+    AutoUpgradeCarry = false,
+    AutoFarmLuckyBlock = false,
+    AutoRebirth = false,
+    AutoBuySpeed = false,
+    WebhookNotifications = false
 }
 
---------------------------------------------------
--- PERFORMANCE WAIT
---------------------------------------------------
-local FAST = 0.15
-local MED = 0.3
-local SLOW = 0.7
+-- Variables
+local OriginalPosition = nil
+local SelectedRarities = {}
+local RemoveNPCConnection = nil
+local RemoveNotificationConnection = nil
+local CurrentlyFarming = false
+local LastFarmedBlock = nil
+local WebhookURL = ""
+local NotifiedBlocks = {}
 
---------------------------------------------------
--- 1 AUTO CASH
---------------------------------------------------
-Tabs.Auto:AddToggle("AutoCash", {Title="Auto Collect Cash"}):OnChanged(function(v)
-    State.AutoCash = v
-    task.spawn(function()
-        while State.AutoCash do
-            for i = 1,20 do
-                Event:FireServer("ClaimSlotMoney", tostring(i))
+--[[ CREDITS TAB ]]--
+local CreditsSection = Tabs.Credits:AddSection("Creators")
+
+Tabs.Credits:AddParagraph({
+    Title = "Development Team",
+    Content = "This script was created by the following talented developers:"
+})
+
+Tabs.Credits:AddParagraph({
+    Title = "Marcus Vale",
+    Content = "Lead Developer & Script Creator"
+})
+
+Tabs.Credits:AddParagraph({
+    Title = "Damien Crowe",
+    Content = "Co-Developer & Feature Implementation"
+})
+
+Tabs.Credits:AddParagraph({
+    Title = "Special Thanks",
+    Content = "Thank you for using our script! We hope it enhances your gaming experience."
+})
+
+--[[ WEBHOOK TAB ]]--
+local WebhookSection = Tabs.Webhook:AddSection("Discord Webhook")
+
+Tabs.Webhook:AddParagraph({
+    Title = "What is a Webhook?",
+    Content = "A Discord webhook allows this script to send messages to your Discord server. You can receive notifications when rare lucky blocks spawn in the game!"
+})
+
+-- Webhook URL Input
+local WebhookInput = Tabs.Webhook:AddInput("WebhookURL", {
+    Title = "Discord Webhook URL",
+    Description = "Paste your Discord webhook URL here",
+    Default = "",
+    Placeholder = "https://discord.com/api/webhooks/...",
+    Numeric = false,
+    Finished = true,
+    Callback = function(Value)
+        WebhookURL = Value
+        if Value ~= "" then
+            Fluent:Notify({
+                Title = "Webhook",
+                Content = "Webhook URL saved successfully!",
+                Duration = 3
+            })
+        end
+    end
+})
+
+-- Webhook Toggle
+local WebhookToggle = Tabs.Webhook:AddToggle("WebhookNotifications", {
+    Title = "Enable Webhook Notifications",
+    Description = "Send lucky block spawn notifications to Discord",
+    Default = false,
+    Callback = function(Value)
+        Toggles.WebhookNotifications = Value
+        if Value and WebhookURL == "" then
+            Fluent:Notify({
+                Title = "Webhook Error",
+                Content = "Please enter a webhook URL first!",
+                Duration = 4
+            })
+            Toggles.WebhookNotifications = false
+        end
+    end
+})
+
+-- Test Webhook Button
+local TestWebhookButton = Tabs.Webhook:AddButton({
+    Title = "Test Webhook",
+    Description = "Send a test message to your Discord webhook",
+    Callback = function()
+        if WebhookURL == "" then
+            Fluent:Notify({
+                Title = "Webhook Error",
+                Content = "Please enter a webhook URL first!",
+                Duration = 3
+            })
+            return
+        end
+        
+        local success = pcall(function()
+            local data = {
+                ["content"] = "",
+                ["embeds"] = {{
+                    ["title"] = "🎮 Webhook Test - Melt a Lucky Block",
+                    ["description"] = "Your webhook is working correctly!",
+                    ["color"] = 3447003,
+                    ["fields"] = {
+                        {
+                            ["name"] = "Player",
+                            ["value"] = Player.Name,
+                            ["inline"] = true
+                        },
+                        {
+                            ["name"] = "Status",
+                            ["value"] = "✅ Connected",
+                            ["inline"] = true
+                        }
+                    },
+                    ["footer"] = {
+                        ["text"] = "Melt a Lucky Block by GrimSyndicate"
+                    },
+                    ["timestamp"] = os.date("!%Y-%m-%dT%H:%M:%S")
+                }}
+            }
+            
+            local response = request({
+                Url = WebhookURL,
+                Method = "POST",
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode(data)
+            })
+        end)
+        
+        if success then
+            Fluent:Notify({
+                Title = "Webhook Test",
+                Content = "Test message sent successfully!",
+                Duration = 3
+            })
+        else
+            Fluent:Notify({
+                Title = "Webhook Error",
+                Content = "Failed to send test message. Check your URL!",
+                Duration = 4
+            })
+        end
+    end
+})
+
+Tabs.Webhook:AddParagraph({
+    Title = "How to Get a Webhook URL",
+    Content = "1. Go to your Discord server\n2. Edit a channel → Integrations → Webhooks\n3. Create New Webhook\n4. Copy the webhook URL\n5. Paste it above"
+})
+
+-- Function to send webhook notification
+local function SendWebhookNotification(blockName, rarity, position)
+    if not Toggles.WebhookNotifications or WebhookURL == "" then
+        return
+    end
+    
+    -- Check if we already notified about this block
+    local blockKey = tostring(blockName) .. "_" .. tostring(rarity)
+    if NotifiedBlocks[blockKey] then
+        return
+    end
+    
+    NotifiedBlocks[blockKey] = true
+    
+    -- Determine color based on rarity
+    local rarityColors = {
+        ["Common"] = 9807270,      -- Gray
+        ["Uncommon"] = 3066993,    -- Green
+        ["Rare"] = 3447003,        -- Blue
+        ["Epic"] = 10181046,       -- Purple
+        ["Legendary"] = 15844367,  -- Gold
+        ["Celestial"] = 15844367,  -- Gold/Yellow
+        ["Secret"] = 16711680      -- Red
+    }
+    
+    local color = rarityColors[rarity] or 3447003
+    
+    -- Determine emoji based on rarity
+    local rarityEmojis = {
+        ["Common"] = "⚪",
+        ["Uncommon"] = "🟢",
+        ["Rare"] = "🔵",
+        ["Epic"] = "🟣",
+        ["Legendary"] = "🟡",
+        ["Celestial"] = "⭐",
+        ["Secret"] = "🔴"
+    }
+    
+    local emoji = rarityEmojis[rarity] or "📦"
+    
+    pcall(function()
+        local data = {
+            ["content"] = "",
+            ["embeds"] = {{
+                ["title"] = emoji .. " Lucky Block Spawned!",
+                ["description"] = "A lucky block has appeared in the game!",
+                ["color"] = color,
+                ["fields"] = {
+                    {
+                        ["name"] = "🎁 Block Type",
+                        ["value"] = blockName or "Unknown",
+                        ["inline"] = true
+                    },
+                    {
+                        ["name"] = "💎 Rarity",
+                        ["value"] = rarity or "Unknown",
+                        ["inline"] = true
+                    },
+                    {
+                        ["name"] = "👤 Player",
+                        ["value"] = Player.Name,
+                        ["inline"] = true
+                    },
+                    {
+                        ["name"] = "📍 Position",
+                        ["value"] = position and string.format("X: %.1f, Y: %.1f, Z: %.1f", position.X, position.Y, position.Z) or "Unknown",
+                        ["inline"] = false
+                    }
+                },
+                ["footer"] = {
+                    ["text"] = "Melt a Lucky Block by GrimSyndicate"
+                },
+                ["timestamp"] = os.date("!%Y-%m-%dT%H:%M:%S")
+            }}
+        }
+        
+        request({
+            Url = WebhookURL,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json"
+            },
+            Body = HttpService:JSONEncode(data)
+        })
+    end)
+end
+
+--[[ AUTO TAB ]]--
+local AutoFarmSection = Tabs.Auto:AddSection("Auto Farm")
+
+-- 1. Auto Collect Cash
+local AutoCollectCashToggle = Tabs.Auto:AddToggle("AutoCollectCash", {
+    Title = "Auto Collect Cash",
+    Description = "Automatically collects cash from slots 1-20",
+    Default = false,
+    Callback = function(Value)
+        Toggles.AutoCollectCash = Value
+    end
+})
+
+-- 2. Auto Upgrade Brainrot
+local AutoUpgradeBrainrotToggle = Tabs.Auto:AddToggle("AutoUpgradeBrainrot", {
+    Title = "Auto Upgrade Brainrot",
+    Description = "Automatically upgrades brainrot for slots 1-20",
+    Default = false,
+    Callback = function(Value)
+        Toggles.AutoUpgradeBrainrot = Value
+    end
+})
+
+-- 3. Auto Buy All Flamethrowers
+local AutoBuyFlamethrowerToggle = Tabs.Auto:AddToggle("AutoBuyFlamethrowers", {
+    Title = "Auto Buy All Flamethrowers",
+    Description = "Automatically purchases all flamethrower types",
+    Default = false,
+    Callback = function(Value)
+        Toggles.AutoBuyFlamethrowers = Value
+    end
+})
+
+-- 4. Auto Claim Playtime Rewards
+local AutoClaimPlaytimeToggle = Tabs.Auto:AddToggle("AutoClaimPlaytime", {
+    Title = "Auto Claim Playtime Rewards",
+    Description = "Automatically claims playtime rewards 1-6",
+    Default = false,
+    Callback = function(Value)
+        Toggles.AutoClaimPlaytime = Value
+    end
+})
+
+-- 5. Auto Upgrade Carry
+local AutoUpgradeCarryToggle = Tabs.Auto:AddToggle("AutoUpgradeCarry", {
+    Title = "Auto Upgrade Carry",
+    Description = "Automatically upgrades carry capacity",
+    Default = false,
+    Callback = function(Value)
+        Toggles.AutoUpgradeCarry = Value
+    end
+})
+
+-- 6. Auto Farm Lucky Block
+local RarityDropdown = Tabs.Auto:AddDropdown("RarityDropdown", {
+    Title = "Lucky Block Rarity",
+    Description = "Select rarities to auto farm",
+    Values = {"Common", "Uncommon", "Rare", "Epic", "Legendary", "Celestial"},
+    Multi = true,
+    Default = {},
+    Callback = function(Value)
+        SelectedRarities = Value
+    end
+})
+
+local AutoFarmLuckyBlockToggle = Tabs.Auto:AddToggle("AutoFarmLuckyBlock", {
+    Title = "Auto Farm Lucky Block",
+    Description = "Automatically farms lucky blocks of selected rarities",
+    Default = false,
+    Callback = function(Value)
+        Toggles.AutoFarmLuckyBlock = Value
+        if Value then
+            OriginalPosition = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") and Player.Character.HumanoidRootPart.CFrame
+        end
+    end
+})
+
+-- 7. Remove NPC
+local RemoveNPCButton = Tabs.Auto:AddButton({
+    Title = "Remove NPC",
+    Description = "Removes all NPCs from the workspace",
+    Callback = function()
+        -- Remove existing NPCs
+        for _, model in pairs(Workspace:GetChildren()) do
+            if model.Name == "NPC" and model:IsA("Model") then
+                if model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Humanoid") then
+                    model:Destroy()
+                end
             end
-            task.wait(FAST)
         end
-    end)
-end)
-
---------------------------------------------------
--- 2 BRAINROT
---------------------------------------------------
-Tabs.Auto:AddToggle("Brainrot", {Title="Auto Upgrade Brainrot"}):OnChanged(function(v)
-    State.Brainrot = v
-    task.spawn(function()
-        while State.Brainrot do
-            for i = 1,20 do
-                Event:FireServer("UpgradeSlotBrainrot", tostring(i))
+        
+        -- Monitor for new NPCs
+        if RemoveNPCConnection then
+            RemoveNPCConnection:Disconnect()
+        end
+        
+        RemoveNPCConnection = Workspace.ChildAdded:Connect(function(child)
+            if child.Name == "NPC" and child:IsA("Model") then
+                task.wait(0.1)
+                if child:FindFirstChild("HumanoidRootPart") or child:FindFirstChild("Humanoid") then
+                    child:Destroy()
+                end
             end
-            task.wait(FAST)
-        end
-    end)
-end)
+        end)
+        
+        Fluent:Notify({
+            Title = "NPC Removal",
+            Content = "All NPCs removed and monitoring enabled",
+            Duration = 3
+        })
+    end
+})
 
---------------------------------------------------
--- 3 FLAMETHROWERS
---------------------------------------------------
-local Flames = {"Iron","Steel","Emerald","Diamond","Golden","Obsidian","Glacier","Lava","Storm","Shadow","Toxic","Plasma","CryStal","Void","Celestial","Toy"}
+-- 8. Auto Rebirth
+local AutoRebirthToggle = Tabs.Auto:AddToggle("AutoRebirth", {
+    Title = "Auto Rebirth",
+    Description = "Automatically rebirths when available",
+    Default = false,
+    Callback = function(Value)
+        Toggles.AutoRebirth = Value
+    end
+})
 
-Tabs.Auto:AddToggle("Flame", {Title="Auto Buy Flamethrowers"}):OnChanged(function(v)
-    State.Flame = v
-    task.spawn(function()
-        while State.Flame do
-            for _,name in ipairs(Flames) do
-                Event:FireServer("FlamethrowerAction", name)
+-- 9. Remove Notification
+local RemoveNotificationButton = Tabs.Auto:AddButton({
+    Title = "Remove Notification",
+    Description = "Removes all notification templates",
+    Callback = function()
+        local notificationPath = PlayerGui:FindFirstChild("MainGui")
+        if notificationPath then
+            notificationPath = notificationPath:FindFirstChild("Buttons")
+            if notificationPath then
+                -- Remove existing notifications
+                for _, notification in pairs(notificationPath:GetChildren()) do
+                    if notification.Name == "NotificationTemplate" then
+                        notification:Destroy()
+                    end
+                end
+                
+                -- Monitor for new notifications
+                if RemoveNotificationConnection then
+                    RemoveNotificationConnection:Disconnect()
+                end
+                
+                RemoveNotificationConnection = notificationPath.ChildAdded:Connect(function(child)
+                    if child.Name == "NotificationTemplate" then
+                        child:Destroy()
+                    end
+                end)
+                
+                Fluent:Notify({
+                    Title = "Notifications",
+                    Content = "All notifications removed and monitoring enabled",
+                    Duration = 3
+                })
             end
-            task.wait(MED)
         end
-    end)
-end)
+    end
+})
 
---------------------------------------------------
--- 4 PLAYTIME
---------------------------------------------------
-Tabs.Auto:AddToggle("Playtime", {Title="Auto Claim Playtime"}):OnChanged(function(v)
-    State.Playtime = v
-    task.spawn(function()
-        while State.Playtime do
-            for i = 1,6 do
-                Event:FireServer("ClaimPlaytimeReward", i)
-            end
-            task.wait(SLOW)
-        end
-    end)
-end)
+-- 10. Auto Buy Speed Upgrade
+local AutoBuySpeedToggle = Tabs.Auto:AddToggle("AutoBuySpeed", {
+    Title = "Auto Buy Speed Upgrade",
+    Description = "Automatically purchases speed upgrades",
+    Default = false,
+    Callback = function(Value)
+        Toggles.AutoBuySpeed = Value
+    end
+})
 
---------------------------------------------------
--- 5 CARRY
---------------------------------------------------
-Tabs.Auto:AddToggle("Carry", {Title="Auto Upgrade Carry"}):OnChanged(function(v)
-    State.Carry = v
-    task.spawn(function()
-        while State.Carry do
-            Event:FireServer("BuyCarryUpgrade")
-            task.wait(MED)
-        end
-    end)
-end)
-
---------------------------------------------------
--- 6 LUCKY BLOCK FARM (FIXED)
---------------------------------------------------
-local SelectedRarity = "Common"
-
-Tabs.Auto:AddDropdown("Rarity", {
-    Title="Rarity",
-    Values={"Common","Uncommon","Rare","Epic","Legendary","Celestial"},
-    Default=1
-}):OnChanged(function(v)
-    SelectedRarity = v
-end)
-
-Tabs.Auto:AddToggle("LuckyFarm", {Title="Auto Farm Lucky Block"}):OnChanged(function(v)
-    State.LuckyFarm = v
-
-    task.spawn(function()
-        while State.LuckyFarm do
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-
-            if root then
-                local old = root.CFrame
-
-                for _,block in ipairs(workspace.LuckyBlocks:GetChildren()) do
-                    if not State.LuckyFarm then break end
-
+-- Monitor Lucky Blocks for Webhook Notifications
+task.spawn(function()
+    while task.wait(2) do
+        if Toggles.WebhookNotifications and WebhookURL ~= "" then
+            local luckyBlocksFolder = Workspace:FindFirstChild("LuckyBlocks")
+            if luckyBlocksFolder then
+                for _, block in pairs(luckyBlocksFolder:GetChildren()) do
                     if block:IsA("MeshPart") then
-                        local gui = block:FindFirstChild("LuckyBlockGUI")
-                        local prompt = block:FindFirstChildOfClass("ProximityPrompt")
-
-                        if gui and prompt then
-                            local rarity = gui:FindFirstChild("Rarity")
-
-                            if rarity and rarity.Text == SelectedRarity then
-                                root.CFrame = block.CFrame + Vector3.new(0,3,0)
-                                task.wait(0.25)
-
-                                fireproximityprompt(prompt)
-
-                                task.wait(0.25)
-
-                                root.CFrame = old
-                                break -- ONLY ONE TARGET
+                        local luckyBlockGUI = block:FindFirstChild("LuckyBlockGUI")
+                        
+                        if luckyBlockGUI then
+                            local rarityLabel = luckyBlockGUI:FindFirstChild("Rarity")
+                            
+                            if rarityLabel and rarityLabel:IsA("TextLabel") then
+                                local rarity = rarityLabel:GetAttribute("Rarity") or rarityLabel.Text
+                                local position = block.Position
+                                
+                                -- Send notification for this block
+                                SendWebhookNotification(block.Name, rarity, position)
                             end
                         end
                     end
                 end
             end
-
-            task.wait(1)
         end
-    end)
+    end
 end)
 
---------------------------------------------------
--- 7 REMOVE NPC (OPTIMIZED LOOP)
---------------------------------------------------
-Tabs.Auto:AddButton({
-    Title="Remove NPC",
-    Callback=function()
-        task.spawn(function()
-            while true do
-                for _,v in ipairs(workspace:GetChildren()) do
-                    if v.Name=="NPC" and v:IsA("Model") then
-                        if v:FindFirstChild("Humanoid") or v:FindFirstChild("HumanoidRootPart") then
-                            v:Destroy()
-                        end
-                    end
-                end
-                task.wait(2)
-            end
+--[[ MAIN LOOP ]]--
+RunService.Heartbeat:Connect(function()
+    -- 1. Auto Collect Cash
+    if Toggles.AutoCollectCash then
+        for i = 1, 20 do
+            pcall(function()
+                Event:FireServer("ClaimSlotMoney", tostring(i))
+            end)
+        end
+    end
+    
+    -- 2. Auto Upgrade Brainrot
+    if Toggles.AutoUpgradeBrainrot then
+        for i = 1, 20 do
+            pcall(function()
+                Event:FireServer("UpgradeSlotBrainrot", tostring(i))
+            end)
+        end
+    end
+    
+    -- 3. Auto Buy Flamethrowers
+    if Toggles.AutoBuyFlamethrowers then
+        local flamethrowers = {"Iron", "Steel", "Emerald", "Diamond", "Golden", "Obsidian", 
+                               "Glacier", "Lava", "Storm", "Shadow", "Toxic", "Plasma", 
+                               "Crystal", "Void", "Celestial", "Toy"}
+        for _, flamethrower in ipairs(flamethrowers) do
+            pcall(function()
+                Event:FireServer("FlamethrowerAction", flamethrower)
+            end)
+        end
+    end
+    
+    -- 4. Auto Claim Playtime Rewards
+    if Toggles.AutoClaimPlaytime then
+        for i = 1, 6 do
+            pcall(function()
+                Event:FireServer("ClaimPlaytimeReward", i)
+            end)
+        end
+    end
+    
+    -- 5. Auto Upgrade Carry
+    if Toggles.AutoUpgradeCarry then
+        pcall(function()
+            Event:FireServer("BuyCarryUpgrade")
         end)
     end
-})
-
---------------------------------------------------
--- 8 REBIRTH
---------------------------------------------------
-Tabs.Auto:AddToggle("Rebirth", {Title="Auto Rebirth"}):OnChanged(function(v)
-    State.Rebirth = v
-    task.spawn(function()
-        while State.Rebirth do
-            Event:FireServer("Rebirth")
-            task.wait(SLOW)
-        end
-    end)
-end)
-
---------------------------------------------------
--- 9 AUTO REMOVE NOTIFICATIONS (FIXED)
---------------------------------------------------
-Tabs.Auto:AddToggle("Notif", {Title="Auto Remove Notifications"}):OnChanged(function(v)
-    State.AutoNotif = v
-
-    task.spawn(function()
-        while State.AutoNotif do
-            local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGui")
-
-            if gui and gui:FindFirstChild("Buttons") then
-                for _,v in ipairs(gui.Buttons:GetChildren()) do
-                    if v.Name == "NotificationTemplate" then
-                        v:Destroy()
+    
+    -- 6. Auto Farm Lucky Block (One block at a time)
+    if Toggles.AutoFarmLuckyBlock and next(SelectedRarities) and not CurrentlyFarming then
+        CurrentlyFarming = true
+        
+        task.spawn(function()
+            local character = Player.Character
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local hrp = character.HumanoidRootPart
+                local luckyBlocksFolder = Workspace:FindFirstChild("LuckyBlocks")
+                
+                if luckyBlocksFolder then
+                    -- Save current position before teleporting
+                    local savedPosition = hrp.CFrame
+                    
+                    -- Find a valid lucky block to farm
+                    local blockToFarm = nil
+                    
+                    for _, block in pairs(luckyBlocksFolder:GetChildren()) do
+                        if block:IsA("MeshPart") and block ~= LastFarmedBlock then
+                            local proximityPrompt = block:FindFirstChildOfClass("ProximityPrompt")
+                            local luckyBlockGUI = block:FindFirstChild("LuckyBlockGUI")
+                            
+                            if proximityPrompt and luckyBlockGUI then
+                                local rarityLabel = luckyBlockGUI:FindFirstChild("Rarity")
+                                
+                                if rarityLabel and rarityLabel:IsA("TextLabel") then
+                                    local rarity = rarityLabel:GetAttribute("Rarity") or rarityLabel.Text
+                                    
+                                    -- Check if this rarity is selected
+                                    if SelectedRarities[rarity] then
+                                        blockToFarm = block
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- If we found a block, teleport and farm it
+                    if blockToFarm then
+                        LastFarmedBlock = blockToFarm
+                        
+                        -- Teleport to the block
+                        pcall(function()
+                            hrp.CFrame = blockToFarm.CFrame + Vector3.new(0, 3, 0)
+                        end)
+                        
+                        task.wait(0.2)
+                        
+                        -- Fire proximity prompt
+                        local proximityPrompt = blockToFarm:FindFirstChildOfClass("ProximityPrompt")
+                        if proximityPrompt then
+                            pcall(function()
+                                fireproximityprompt(proximityPrompt)
+                            end)
+                        end
+                        
+                        task.wait(0.3)
+                        
+                        -- Teleport back to saved position
+                        pcall(function()
+                            hrp.CFrame = savedPosition
+                        end)
+                        
+                        task.wait(0.1)
+                    else
+                        -- Reset last farmed block if no valid blocks found
+                        LastFarmedBlock = nil
                     end
                 end
             end
-
-            task.wait(0.5)
-        end
-    end)
-end)
-
---------------------------------------------------
--- 10 SPEED
---------------------------------------------------
-Tabs.Auto:AddToggle("Speed", {Title="Auto Buy Speed"}):OnChanged(function(v)
-    State.Speed = v
-    task.spawn(function()
-        while State.Speed do
+            
+            CurrentlyFarming = false
+        end)
+    end
+    
+    -- 8. Auto Rebirth
+    if Toggles.AutoRebirth then
+        pcall(function()
+            Event:FireServer("Rebirth")
+        end)
+    end
+    
+    -- 10. Auto Buy Speed Upgrade
+    if Toggles.AutoBuySpeed then
+        pcall(function()
             Event:FireServer("BuySpeedUpgrade")
-            task.wait(MED)
-        end
-    end)
-end)
-
---------------------------------------------------
--- MOBILE / MINIMIZE BUTTON SYSTEM
---------------------------------------------------
-local ScreenGui = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
-ScreenGui.IgnoreGuiInset = true
-
-local OpenBtn = Instance.new("TextButton")
-OpenBtn.Size = UDim2.new(0,140,0,45)
-OpenBtn.Position = UDim2.new(0.5,-70,0,10)
-OpenBtn.Text = "Open UI"
-OpenBtn.Visible = false
-OpenBtn.Parent = ScreenGui
-
--- Keybind fallback (PC)
-UIS.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.RightControl then
-        Window:Minimize()
-        OpenBtn.Visible = true
+        end)
     end
 end)
 
--- Open UI again
-OpenBtn.MouseButton1Click:Connect(function()
-    Window:Restore()
-    OpenBtn.Visible = false
+-- Create UI Toggle Button (FIXED)
+task.spawn(function()
+    task.wait(1) -- Wait for UI to fully load
+    
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "UIToggleGui"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.IgnoreGuiInset = true
+    ScreenGui.Parent = game:GetService("CoreGui")
+    
+    local ToggleButton = Instance.new("TextButton")
+    ToggleButton.Name = "ToggleButton"
+    ToggleButton.Size = UDim2.fromOffset(150, 40)
+    ToggleButton.Position = UDim2.new(0.5, -75, 0, 10)
+    ToggleButton.AnchorPoint = Vector2.new(0.5, 0)
+    ToggleButton.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    ToggleButton.BorderSizePixel = 0
+    ToggleButton.Text = "Hide UI"
+    ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleButton.TextSize = 16
+    ToggleButton.Font = Enum.Font.GothamBold
+    ToggleButton.Parent = ScreenGui
+    
+    -- Add rounded corners
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 8)
+    UICorner.Parent = ToggleButton
+    
+    -- Add stroke
+    local UIStroke = Instance.new("UIStroke")
+    UIStroke.Color = Color3.fromRGB(100, 100, 100)
+    UIStroke.Thickness = 2
+    UIStroke.Parent = ToggleButton
+    
+    -- Hover effects
+    ToggleButton.MouseEnter:Connect(function()
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        UIStroke.Color = Color3.fromRGB(150, 150, 150)
+    end)
+    
+    ToggleButton.MouseLeave:Connect(function()
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+        UIStroke.Color = Color3.fromRGB(100, 100, 100)
+    end)
+    
+    -- Toggle functionality
+    local UIVisible = true
+    
+    ToggleButton.MouseButton1Click:Connect(function()
+        UIVisible = not UIVisible
+        Window:SetVisibility(UIVisible)
+        
+        if UIVisible then
+            ToggleButton.Text = "Hide UI"
+        else
+            ToggleButton.Text = "Show UI"
+        end
+    end)
 end)
+
+-- Notify script loaded
+Fluent:Notify({
+    Title = "Melt a Lucky Block",
+    Content = "Script loaded successfully!",
+    Duration = 5
+})
+
+print("Melt a Lucky Block script loaded!")
+print("Created by Marcus Vale & Damien Crowe")
